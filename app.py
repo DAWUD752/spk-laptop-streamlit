@@ -22,7 +22,7 @@ st.set_page_config(
 # =========================================================
 @st.cache_data
 def load_data():
-    return pd.read_csv("dataset_laptop_50_data.xlsx")
+    return pd.read_csv("laptop.csv")
 
 if "data" not in st.session_state:
     st.session_state.data = load_data()
