@@ -7,7 +7,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-
 # =========================================================
 # KONFIGURASI HALAMAN
 # =========================================================
@@ -16,9 +15,8 @@ st.set_page_config(
     layout="wide"
 )
 
-
 # =========================================================
-# LOAD DATASET & SIMPAN KE SESSION
+# LOAD DATASET
 # =========================================================
 @st.cache_data
 def load_data():
@@ -27,6 +25,14 @@ def load_data():
 if "data" not in st.session_state:
     st.session_state.data = load_data()
 
+# =========================================================
+# FUNGSI AHP
+# =========================================================
+def ahp(pairwise_matrix):
+    col_sum = pairwise_matrix.sum(axis=0)
+    norm_matrix = pairwise_matrix / col_sum
+    weights = norm_matrix.mean(axis=1)
+    return weights
 
 # =========================================================
 # FUNGSI TOPSIS
@@ -34,71 +40,76 @@ if "data" not in st.session_state:
 def topsis(df, weights, impacts):
     X = df.values.astype(float)
 
-    # Normalisasi
     norm = np.sqrt((X ** 2).sum(axis=0))
     R = X / norm
-
-    # Normalisasi berbobot
     V = R * weights
 
-    # Solusi ideal positif & negatif
     ideal_pos = np.where(impacts == 1, V.max(axis=0), V.min(axis=0))
     ideal_neg = np.where(impacts == 1, V.min(axis=0), V.max(axis=0))
 
-    # Jarak ke solusi ideal
     D_pos = np.sqrt(((V - ideal_pos) ** 2).sum(axis=1))
     D_neg = np.sqrt(((V - ideal_neg) ** 2).sum(axis=1))
 
-    # Nilai preferensi
     score = D_neg / (D_pos + D_neg)
-
     return score
-
 
 # =========================================================
 # SIDEBAR
 # =========================================================
 st.sidebar.title("Kontrol Aplikasi")
 
-top_n = st.sidebar.slider(
-    "Tampilkan Top-N Laptop",
-    min_value=5,
-    max_value=20,
-    value=10
-)
+top_n = st.sidebar.slider("Tampilkan Top-N Laptop", 5, 20, 10)
 
+# ---------------- AHP INTERAKTIF ----------------
+st.sidebar.subheader("AHP - Bobot Kriteria")
+
+criteria = ["Price", "RAM", "Storage", "CPU_Speed", "Weight"]
+n = len(criteria)
+
+pairwise = np.ones((n, n))
+
+for i in range(n):
+    for j in range(i + 1, n):
+        val = st.sidebar.slider(
+            f"{criteria[i]} vs {criteria[j]}",
+            1/9, 9.0, 1.0, step=0.1
+        )
+        pairwise[i, j] = val
+        pairwise[j, i] = 1 / val
+
+weights_ahp = ahp(pairwise)
+
+st.sidebar.markdown("### Bobot AHP")
+for c, w in zip(criteria, weights_ahp):
+    st.sidebar.write(f"{c}: **{w:.3f}**")
 
 # =========================================================
-# JUDUL HALAMAN
+# JUDUL
 # =========================================================
 st.title("Sistem Pendukung Keputusan Pemilihan Laptop")
 st.markdown("""
-Aplikasi ini menggunakan metode **AHP** untuk menentukan bobot kriteria  
-dan **TOPSIS** untuk melakukan perangkingan laptop terbaik.
+Metode yang digunakan:
+- **AHP** → Penentuan bobot kriteria (interaktif)
+- **TOPSIS** → Perangkingan laptop terbaik
 """)
 
-
 # =========================================================
-# TAB MENU (DUA MODE)
+# TAB MENU
 # =========================================================
 tab1, tab2 = st.tabs([
     "📊 Hasil Otomatis",
-    "➕ Input Data Laptop (Interaktif)"
+    "➕ Input Data Laptop"
 ])
 
-
 # =========================================================
-# ======================= TAB 1 ===========================
-# MODE HASIL OTOMATIS
+# TAB 1 - HASIL OTOMATIS
 # =========================================================
 with tab1:
 
     st.subheader("Dataset Laptop (Lengkap)")
-    st.dataframe(st.session_state.data)
+    st.dataframe(st.session_state.data, use_container_width=True)
 
-    # -------------------------------
-    # VISUALISASI SCATTER
-    # -------------------------------
+    # ---------------- SCATTER ----------------
     st.subheader("Scatter Plot (Price vs RAM)")
     fig1, ax1 = plt.subplots()
     ax1.scatter(
@@ -109,67 +120,41 @@ with tab1:
     ax1.set_ylabel("RAM")
     st.pyplot(fig1)
 
-    # -------------------------------
-    # VISUALISASI HISTOGRAM
-    # -------------------------------
+    # ---------------- HISTOGRAM ----------------
     st.subheader("Histogram Harga Laptop")
     fig2, ax2 = plt.subplots()
-    ax2.hist(
-        st.session_state.data["Price"],
-        bins=15
-    )
+    ax2.hist(st.session_state.data["Price"], bins=15)
     ax2.set_xlabel("Price")
     ax2.set_ylabel("Frekuensi")
     st.pyplot(fig2)
 
-    # -------------------------------
-    # VISUALISASI HEATMAP
-    # -------------------------------
+    # ---------------- HEATMAP ----------------
     st.subheader("Heatmap Korelasi Kriteria")
-
-    criteria_cols = ["Price", "RAM", "Storage", "CPU_Speed", "Weight"]
-    corr = st.session_state.data[criteria_cols].corr()
-
+    corr = st.session_state.data[criteria].corr()
     fig3, ax3 = plt.subplots()
-    sns.heatmap(
-        corr,
-        annot=True,
-        cmap="coolwarm",
-        fmt=".2f",
-        ax=ax3
-    )
+    sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f", ax=ax3)
     st.pyplot(fig3)
 
-    # -------------------------------
-    # PERHITUNGAN TOPSIS
-    # -------------------------------
+    # ---------------- TOPSIS ----------------
     st.subheader("Hasil Perangkingan TOPSIS")
 
-    # Bobot dari AHP (contoh hasil Excel)
-    weights = np.array([0.35, 0.25, 0.18, 0.12, 0.10])
-
-    # Impact: 1 = benefit, 0 = cost
-    impacts = np.array([0, 1, 1, 1, 0])
+    impacts = np.array([0, 1, 1, 1, 0])  # cost / benefit
 
     scores = topsis(
-        st.session_state.data[criteria_cols],
-        weights,
+        st.session_state.data[criteria],
+        weights_ahp,
         impacts
     )
 
     result = st.session_state.data.copy()
     result["Skor Preferensi"] = scores
     result["Ranking"] = result["Skor Preferensi"].rank(ascending=False)
-
     result = result.sort_values("Ranking")
 
-    st.dataframe(result.head(top_n))
+    st.dataframe(result.head(top_n), use_container_width=True)
 
-    # -------------------------------
-    # BAR CHART RANKING
-    # -------------------------------
+    # ---------------- BAR CHART ----------------
     st.subheader("Grafik Top Laptop")
-
     fig4, ax4 = plt.subplots()
     ax4.barh(
         result.head(top_n)["Brand"],
@@ -179,38 +164,35 @@ with tab1:
     ax4.set_xlabel("Skor Preferensi")
     st.pyplot(fig4)
 
-
 # =========================================================
-# ======================= TAB 2 ===========================
-# MODE INTERAKTIF (INPUT USER)
+# TAB 2 - INPUT DATA
 # =========================================================
 with tab2:
 
     st.subheader("Tambah Data Laptop Baru")
 
-    with st.form("form_input"):
+    with st.form("input_form"):
         brand = st.text_input("Brand")
-        price = st.number_input("Price", min_value=0)
-        ram = st.number_input("RAM", min_value=1)
-        storage = st.number_input("Storage", min_value=1)
+        price = st.number_input("Price", min_value=0.0)
+        ram = st.number_input("RAM (GB)", min_value=1.0)
+        storage = st.number_input("Storage (GB)", min_value=1.0)
         cpu = st.number_input("CPU Speed (GHz)", min_value=0.1)
         weight = st.number_input("Weight (Kg)", min_value=0.1)
-
         submit = st.form_submit_button("Tambah Data")
 
     if submit:
-        new_data = {
+        new_row = pd.DataFrame([{
             "Brand": brand,
             "Price": price,
             "RAM": ram,
             "Storage": storage,
             "CPU_Speed": cpu,
             "Weight": weight
-        }
+        }])
 
         st.session_state.data = pd.concat(
-            [st.session_state.data, pd.DataFrame([new_data])],
+            [st.session_state.data, new_row],
             ignore_index=True
         )
 
-        st.success("Data laptop berhasil ditambahkan!")
+        st.success("✅ Data laptop berhasil ditambahkan!")
